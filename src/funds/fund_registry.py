@@ -11,6 +11,7 @@ import pandas as pd
 import akshare as ak
 
 DEFAULT_CSV = "../../data/funds/funds_code.csv"
+path = "../../data/funds/history/******.csv"
 
 
 class FundsCatalog:
