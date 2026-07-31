@@ -95,14 +95,14 @@ class FundNAVEstimator:
 
     def _save_current_data(self):
         """
-        将当前 DataFrame 保存为 Excel，文件名格式 eg. 26-1-13.xlsx
+        将当前 DataFrame 保存为 Excel，文件名格式 eg. 26-1-13.csv
         """
         today = datetime.date.today()
         # 格式：两位年份-月-日，如 26-1-13
         today_str = f"{today.year % 100}-{today.month}-{today.day}"
-        file_path = os.path.join(self.cache_dir, f"{today_str}.xlsx")
+        file_path = os.path.join(self.cache_dir, f"{today_str}.csv")
         try:
-            self.df.to_excel(file_path, index=False)
+            self.df.to_csv(file_path, index=False)
         except Exception as e:
             # 保存失败不影响主流程，但抛出警告（此处用 RuntimeError 便于上层捕获）
             raise RuntimeError(f"保存估值数据到 {file_path} 失败: {e}")
@@ -152,8 +152,13 @@ if __name__ == "__main__":
 
     # 单只查询
     try:
-        nav = estimator.get_estimated_nav("018125")
-        print(f"当前预估净值（018125）：{nav:.4f}")
+        nav = estimator.get_estimated_nav("017437")
+        print(f"当前预估净值（017437）：{nav:.4f}")
+    except Exception as e:
+        print("单只查询失败：", e)
+    try:
+        nav = estimator.get_estimated_nav("007540")
+        print(f"当前预估净值（007540）：{nav:.4f}")
     except Exception as e:
         print("单只查询失败：", e)
 
