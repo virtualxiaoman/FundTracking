@@ -1,0 +1,4 @@
+# 前端 Web 服务所需额外依赖（在 requirements.txt 基础上追加）
+# 安装: pip install -r requirements-web.txt
+fastapi==0.141.1
+uvicorn==0.52.1

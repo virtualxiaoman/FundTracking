@@ -1,0 +1,15 @@
+# 运行时数据（历史净值、基金列表缓存、用户持仓）
+/data/
+
+# 前端构建产物
+web/node_modules/
+web/dist/
+
+# Python 缓存
+__pycache__/
+
+# IDE 个人配置
+.idea/
+
+# 会话本地临时文件
+claude-session-id.txt
