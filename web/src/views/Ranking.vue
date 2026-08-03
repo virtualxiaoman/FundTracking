@@ -27,14 +27,16 @@ const sortDesc = () => sortMode.value === 'desc'
 
 const rows = ref([])
 const loading = ref(false)
-const count = ref(0)
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = 50
 
 const loadRanking = async () => {
   loading.value = true
   try {
-    const data = await getRanking(currentRange.value, sortMode.value, 200)
+    const data = await getRanking(currentRange.value, sortMode.value, currentPage.value, pageSize)
     rows.value = data.results || []
-    count.value = data.count || 0
+    total.value = data.total || 0
   } catch (e) {
     ElMessage.error('加载排名失败：' + e.message)
   } finally {
@@ -44,11 +46,18 @@ const loadRanking = async () => {
 
 const onRangeChange = async (r) => {
   currentRange.value = r
+  currentPage.value = 1
   await loadRanking()
 }
 
 const onSortChange = async (d) => {
   sortMode.value = d ? 'desc' : 'asc'
+  currentPage.value = 1
+  await loadRanking()
+}
+
+const onPageChange = async (p) => {
+  currentPage.value = p
   await loadRanking()
 }
 
@@ -84,7 +93,7 @@ onMounted(loadRanking)
       <div>
         <h2 class="title">全部基金排行</h2>
         <p class="subtitle">
-          共 {{ count }} 只基金有
+          共 {{ total }} 只基金有
           {{ currentRange === 'TODAY' ? '今日' : currentRange === '1W' ? '近1周' : currentRange === '1M' ? '近1月' : currentRange === '3M' ? '近3月' : currentRange === '1Y' ? '近1年' : currentRange === '3Y' ? '近3年' : currentRange === '5Y' ? '近5年' : '全部' }}
           净值数据，点击行查看历史曲线
         </p>
@@ -143,6 +152,17 @@ onMounted(loadRanking)
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pager">
+        <el-pagination
+          background
+          layout="total, prev, pager, next"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="currentPage"
+          @current-change="onPageChange"
+        />
+      </div>
     </el-card>
 
     <!-- 历史净值曲线弹窗 -->
@@ -196,5 +216,10 @@ onMounted(loadRanking)
 .rate {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

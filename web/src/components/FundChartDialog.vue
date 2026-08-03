@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { getHistory } from '@/api'
@@ -21,7 +21,11 @@ const ranges = [
   { value: 'ALL', label: '全部' },
 ]
 
-const visible = ref(props.modelValue)
+// 双向绑定父组件的 v-model，避免内部状态与父组件不同步
+const visible = computed({
+  get: () => props.modelValue,
+  set: (v) => emit('update:modelValue', v),
+})
 const chartLoading = ref(false)
 const currentRange = ref('1Y')
 const chartEl = ref(null)
@@ -29,7 +33,6 @@ let chart = null
 let resizeObserver = null
 
 const open = async () => {
-  visible.value = true
   currentRange.value = '1Y'
   // 等 el-dialog 渲染完成后图表容器才可初始化
   await nextTick()

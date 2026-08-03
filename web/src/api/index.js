@@ -20,6 +20,6 @@ export const searchFunds = (keyword, limit = 15) =>
 export const getHistory = (fundCode, range) =>
   http.get(`/funds/${fundCode}/history`, { params: { range } })
 
-// 全部基金排行
-export const getRanking = (range, sort = 'desc', limit = 50) =>
-  http.get('/ranking', { params: { range, sort, limit } })
+// 全部基金排行（分页）
+export const getRanking = (range, sort = 'desc', page = 1, pageSize = 50) =>
+  http.get('/ranking', { params: { range, sort, page, page_size: pageSize } })
