@@ -32,6 +32,8 @@ from src.funds.fund_estimation import FundEstimationRepository
 from src.funds.fund_history import FundHistoryRepository
 from src.funds.fund_info import FundInfoRepository
 from src.portfolio.holdings import HoldingsRepository
+from src.ranking.repository import FundRankingRepository
+from src.web.ranking_api import create_ranking_router
 
 app = FastAPI(title="基金持仓看板")
 
@@ -59,6 +61,10 @@ _estimation = FundEstimationRepository(
     cache_seconds=30,
 )
 _holdings = HoldingsRepository()
+
+# 全部基金历史排名（首次查询构建索引，之后读磁盘缓存）
+_ranking = FundRankingRepository(_fund_history)
+app.include_router(create_ranking_router(_ranking, _fund_info))
 
 
 # ============================================================

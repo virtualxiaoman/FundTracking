@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pickle
 import random
 import time
@@ -31,6 +31,7 @@ class FundHistoryRepository:
     def __init__(self):
         self.history_dir = FUNDS_DIR / "history"
         self.history_dir.mkdir(parents=True, exist_ok=True)
+        self.update_hour = 20  # 虽然一般15点截止，但是每天20点后才会更新历史数据，避免基金公司太慢了
 
     # =========================
     # 查询接口
@@ -126,24 +127,52 @@ class FundHistoryRepository:
         new_cache = FundHistoryCache(update_date=items[-1].date, fund_code=fund_code, items=items)
         self._save_cache(new_cache)
 
-    def update_all(self, force: bool = False):
+    def _update_one(self, fund: FundData, force: bool):
+        try:
+            self.update(fund.code, force=force)
+            return True, fund, None
+        except Exception as e:
+            return False, fund, e
+
+    def update_all(self, force: bool = False, max_workers: int = 50):
         """
         更新全部基金历史数据
         """
+        funds: list[FundData] = FundInfoRepository().get_all()
+        total = len(funds)
+        completed = 0
 
-        funds: list[FundData] = (FundInfoRepository().get_all())
-        for idx, fund in enumerate(funds):
-            try:
-                # # 过滤小于某一数值的基金，相当于增量更新
-                # if int(fund.code) < 27654:
-                #     continue
-                self.update(fund.code, force=force)
-            except Exception as e:
-                print(f"{fund} 更新失败：{e}")
-            if (idx + 1) % 10 == 0:
-                long_sleep = random.uniform(1, 3)
-                print(f"已更新 {idx + 1} 只，休息 {long_sleep:.1f} 秒...")
-                time.sleep(long_sleep)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self._update_one, fund, force)
+                for fund in funds
+            ]
+
+            for future in as_completed(futures):
+                completed += 1
+
+                success, fund, err = future.result()
+
+                if success:
+                    print(f"\r进度：{completed}/{total}", end="", flush=True)
+                else:
+                    print(f"\n{fund} 更新失败：{err}")
+                    print(f"\r进度：{completed}/{total}", end="", flush=True)
+
+        print()  # 最后换行
+        # funds: list[FundData] = (FundInfoRepository().get_all())
+        # for idx, fund in enumerate(funds):
+        #     try:
+        #         # # 过滤小于某一数值的基金，相当于增量更新
+        #         # if int(fund.code) < 27654:
+        #         #     continue
+        #         self.update(fund.code, force=force)
+        #     except Exception as e:
+        #         print(f"{fund} 更新失败：{e}")
+        # if (idx + 1) % 10 == 0:
+        #     long_sleep = random.uniform(1, 3)
+        #     print(f"已更新 {idx + 1} 只，休息 {long_sleep:.1f} 秒...")
+        #     time.sleep(long_sleep)
 
     # =========================
     # 日期工具
@@ -265,7 +294,7 @@ class FundHistoryRepository:
     # =========================
     # 更新判断
     # =========================
-    def _need_update(self, cache: FundHistoryCache | None, ) -> bool:
+    def _need_update(self, cache: FundHistoryCache | None) -> bool:
         """
         判断是否需要更新缓存
         注意: update_date表示最后有效净值日期
@@ -280,13 +309,11 @@ class FundHistoryRepository:
         today = now.date()
         yesterday = (today - timedelta(days=1))
 
-        # 15点以前
-        if now.hour < 15:
+        if now.hour < self.update_hour:
             # 昨天的数据已经存在
             if latest_date >= yesterday:
                 return False
             return True
-        # 15点以后
         else:
             # 今天的数据已经存在
             if latest_date >= today:
@@ -295,7 +322,7 @@ class FundHistoryRepository:
             # 尝试更新
             return True
 
-    def _ensure_updated(self, fund_code: str, ):
+    def _ensure_updated(self, fund_code: str):
         """ 查询前确保缓存可用 """
         cache = self._load_cache(fund_code)
         if self._need_update(cache): self.update(fund_code)

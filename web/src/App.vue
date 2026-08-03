@@ -5,10 +5,15 @@ import { useRoute } from 'vue-router'
 const menus = [
   { path: '/', label: '首页', icon: 'HomeFilled' },
   { path: '/holdings', label: '持仓', icon: 'Coin' },
+  { path: '/ranking', label: '全部基金排行', icon: 'TrendCharts' },
 ]
 
 const route = useRoute()
-const active = () => (route.path.startsWith('/holdings') ? '/holdings' : '/')
+const active = () => {
+  if (route.path.startsWith('/holdings')) return '/holdings'
+  if (route.path.startsWith('/ranking')) return '/ranking'
+  return '/'
+}
 </script>
 
 <template>

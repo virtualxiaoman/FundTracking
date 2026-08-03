@@ -1,9 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
-import { getHistory, getPortfolio } from '@/api'
+import { getPortfolio } from '@/api'
+import FundChartDialog from '@/components/FundChartDialog.vue'
 
 // ============================================================
 // 持仓卡片
@@ -95,221 +95,17 @@ const estTime = (card) => {
 }
 
 // ============================================================
-// 历史净值曲线弹窗
+// 历史净值曲线弹窗（复用 FundChartDialog 组件）
 // ============================================================
 const showChart = ref(false)
-const chartLoading = ref(false)
 const currentCard = ref(null)
-const chartEl = ref(null)
-let chart = null
-let resizeObserver = null
 
-const ranges = [
-  { value: '1M', label: '近1月' },
-  { value: '3M', label: '近3月' },
-  { value: '6M', label: '近6月' },
-  { value: '1Y', label: '近1年' },
-  { value: '3Y', label: '近3年' },
-  { value: '5Y', label: '近5年' },
-  { value: 'ALL', label: '全部' },
-]
-const currentRange = ref('1Y')
-
-const openChart = async (card) => {
+const openChart = (card) => {
   currentCard.value = card
   showChart.value = true
-  currentRange.value = '1Y'
-  // 等 el-dialog 渲染完成后图表容器才可初始化
-  await nextTick()
-  await renderChart()
-}
-
-const onRangeChange = async (r) => {
-  currentRange.value = r
-  await renderChart()
-}
-
-const renderChart = async () => {
-  if (!showChart.value) return
-  chartLoading.value = true
-  try {
-    const data = await getHistory(currentCard.value.fund_code, currentRange.value)
-    drawLine(data.items || [])
-  } catch (e) {
-    ElMessage.error('加载历史净值失败：' + e.message)
-  } finally {
-    chartLoading.value = false
-  }
-}
-
-// 净值曲线图：单序列折线（2px），低透明度面积，交叉线+悬浮提示。
-// 单序列不需要图例框，标题即图例；悬浮框与表格同源，值不因悬浮而丢失。
-const drawLine = (items) => {
-  const el = chartEl.value
-  if (!el) {
-    // 容器尚未挂载（例如弹窗过渡中），等下一帧再画
-    setTimeout(() => renderChart(), 120)
-    return
-  }
-  if (!chart) {
-    chart = echarts.init(el)
-    resizeObserver = new ResizeObserver(() => chart && chart.resize())
-    resizeObserver.observe(el)
-  }
-  const dates = items.map((i) => i.date)
-  const unitNav = items.map((i) => i.unit_nav)
-  const accNav = items.map((i) => i.accumulated_nav)
-  const change = items.map((i) => (i.daily_change === null ? null : i.daily_change * 100))
-
-  const series = [
-    {
-      name: '单位净值',
-      type: 'line',
-      data: unitNav,
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { width: 2, color: '#2a78d6' },
-      itemStyle: { color: '#2a78d6' },
-      areaStyle: { color: 'rgba(42, 120, 214, 0.10)' },
-      emphasis: { focus: 'series' },
-    },
-  ]
-  const legendData = ['单位净值']
-  const legendSelected = { 单位净值: true }
-  if (accNav.some((v) => v !== null && v !== undefined)) {
-    series.push({
-      name: '累计净值',
-      type: 'line',
-      data: accNav,
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { width: 2, color: '#eb6834' },
-      itemStyle: { color: '#eb6834' },
-      emphasis: { focus: 'series' },
-    })
-    legendData.push('累计净值')
-    // 累计净值默认关闭，用户点击图例才打开
-    legendSelected.累计净值 = false
-  }
-
-  // 涨跌率轴：与净值轴同为数据，用第三序列 + 隐藏符号实现
-  const showChange = change.some((v) => v !== null && v !== undefined)
-  if (showChange) {
-    series.push({
-      name: '涨跌幅',
-      type: 'line',
-      yAxisIndex: 1,
-      data: change,
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { width: 0 },
-      itemStyle: { color: 'transparent' },
-      emphasis: { disabled: true },
-      tooltip: { show: false },
-    })
-    legendData.push('涨跌幅')
-  }
-
-  // 净值与涨跌幅采用双轴。这里是"并列数据"，不是同一量纲的双轴比较，
-  // 以 dataviz 规范"同一量纲才允许单轴比较"为前提：净值轴(左)+涨跌幅轴(右)。
-  chart.setOption(
-    {
-      animation: false,
-      legend: {
-        data: legendData,
-        selected: legendSelected,
-        textStyle: { color: '#52514e', fontSize: 12 },
-        itemWidth: 14,
-        itemHeight: 2,
-      },
-      tooltip: {
-        trigger: 'axis',
-        confine: true,
-        backgroundColor: '#ffffff',
-        borderColor: 'rgba(11,11,11,0.10)',
-        textStyle: { color: '#0b0b0b' },
-        axisPointer: { type: 'cross' },
-        // 悬浮框：日期 + 各净值序列 + 当日收益率(%)。
-        // 收益率列以文字呈现（不上色），避免状态色与序列色冲突。
-        formatter: (params) => {
-          const list = Array.isArray(params) ? params : [params]
-          if (!list.length) return ''
-          const date = list[0].axisValue
-          const changeRow = list.find((q) => q.seriesName === '涨跌幅')
-          const pct = changeRow && changeRow.value !== null && changeRow.value !== undefined
-            ? Number(changeRow.value).toFixed(2) + '%'
-            : '--'
-          const rows = list
-            .filter((p) => p.seriesName === '单位净值' || p.seriesName === '累计净值')
-            .map((p) => {
-              const v = p.value
-              const color = p.color || p.seriesColor || '#52514e'
-              return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
-                <span style="display:inline-block;width:14px;height:2px;border-radius:1px;background:${color};"></span>
-                <span style="color:#52514e;">${p.seriesName}</span>
-                <span style="margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;">${Number(v).toFixed(4)}</span>
-              </div>`
-            })
-            .join('')
-          return `<div style="font-size:12px;color:#898781;margin-bottom:2px;">${date}</div>${rows}
-            <div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
-              <span style="color:#52514e;">收益率</span>
-              <span style="margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;">${pct}</span>
-            </div>`
-        },
-      },
-      grid: { left: 62, right: 62, top: 44, bottom: 40 },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: dates,
-        axisLine: { lineStyle: { color: '#c3c2b7' } },
-        axisTick: { show: false },
-        axisLabel: { color: '#898781', fontSize: 11 },
-      },
-      yAxis: [
-        {
-          type: 'value',
-          scale: true,
-          axisLabel: { color: '#898781', fontSize: 11 },
-          splitLine: { lineStyle: { color: '#e1e0d9' } },
-          name: '净值',
-          nameTextStyle: { color: '#898781', fontSize: 11 },
-        },
-        {
-          type: 'value',
-          scale: true,
-          axisLabel: { color: '#898781', fontSize: 11, formatter: '{value}%' },
-          splitLine: { show: false },
-          name: '涨跌幅',
-          nameTextStyle: { color: '#898781', fontSize: 11 },
-        },
-      ],
-      dataZoom: [
-        { type: 'inside', throttle: 50 },
-        { type: 'slider', height: 16, bottom: 6 },
-      ],
-      series,
-    },
-    true
-  )
-}
-
-const closeChart = () => {
-  showChart.value = false
-  currentCard.value = null
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-    resizeObserver = null
-  }
-  if (chart) {
-    chart.dispose()
-    chart = null
-  }
 }
 
 onMounted(loadCards)
-onBeforeUnmount(closeChart)
 
 const totalAmount = computed(() =>
   cards.value.reduce((s, c) => s + (c.current_amount || 0), 0)
@@ -438,30 +234,8 @@ const estTotalProfit = computed(() =>
       </template>
     </el-skeleton>
 
-    <!-- 历史净值曲线弹窗 -->
-    <el-dialog
-      v-model="showChart"
-      :title="currentCard ? `${currentCard.fund_name} (${currentCard.fund_code})` : ''"
-      width="78%"
-      top="6vh"
-      destroy-on-close
-      @closed="closeChart"
-    >
-      <div class="chart-filter">
-        <el-radio-group
-          v-model="currentRange"
-          size="small"
-          @change="onRangeChange"
-        >
-          <el-radio-button v-for="r in ranges" :key="r.value" :value="r.value">
-            {{ r.label }}
-          </el-radio-button>
-        </el-radio-group>
-      </div>
-      <div v-loading="chartLoading" class="chart-box">
-        <div ref="chartEl" class="chart"></div>
-      </div>
-    </el-dialog>
+    <!-- 历史净值曲线弹窗（复用组件） -->
+    <FundChartDialog v-model="showChart" :fund="currentCard" />
   </div>
 </template>
 
@@ -594,15 +368,5 @@ const estTotalProfit = computed(() =>
   background: #fcfcfb;
   border: 1px dashed #c3c2b7;
   border-radius: 10px;
-}
-.chart-filter {
-  margin-bottom: 12px;
-}
-.chart-box {
-  height: 420px;
-}
-.chart {
-  width: 100%;
-  height: 100%;
 }
 </style>
