@@ -128,6 +128,7 @@ class FundInfoRepository:
         """
         # 返回副本，防止调用者修改内部数据
         return self._fund_list.copy()
+
     # =======================================================
     # cache
     # =======================================================
@@ -231,7 +232,7 @@ class FundInfoRepository:
         return self._cache.update_date
 
 
-if __name__ == "__main__":
+def test_main():
     repo = FundInfoRepository()
     fund = repo.get_by_code("025209")  # 根据代码查询
     print(fund)
@@ -249,3 +250,12 @@ if __name__ == "__main__":
     print(f"基金数量：{len(repo)}")
     for fund in repo.search("永赢", limit=5):
         print(fund.code, fund.name)
+
+
+if __name__ == "__main__":
+    test_main()
+    repo = FundInfoRepository()
+    if "000002" in repo:
+        print("存在")
+    print(repo.code_to_name("000002"))  # 代码转名称
+    print(repo.get_by_code("000009"))

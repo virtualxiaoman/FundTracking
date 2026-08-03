@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
     # 单只查询
     try:
-        nav = estimator.get_estimated_nav("017437")
+        nav = estimator.get_estimated_nav("000001")
         print(f"当前预估净值（017437）：{nav:.4f}")
     except Exception as e:
         print("单只查询失败：", e)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 
 @dataclass(slots=True, frozen=True)
@@ -33,3 +33,13 @@ class FundHistoryCache:
     update_date: date  # 缓存更新日期
     fund_code: str  # 基金代码
     items: list[FundHistoryItem]  # 按日期升序排列（最早 -> 最新）
+
+
+@dataclass(slots=True, frozen=True)
+class FundEstimation:
+    """基金实时估值"""
+    fund_code: str
+    estimate_nav: float  # 当前估算净值
+    change_rate: float  # 估算涨跌幅(原始值，如 0.0125 表示 +1.25%)
+    query_time: datetime  # 查询接口的时间
+    source: str = "eastmoney"
