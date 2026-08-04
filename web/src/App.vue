@@ -16,6 +16,18 @@ const active = () => {
 }
 </script>
 
+<!-- 全局基础样式：消除浏览器默认 margin，应用占满视口，
+     滚动统一交给内部 el-main，内容不足时不产生页面级滚动 -->
+<style>
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+</style>
+
 <template>
   <el-container class="layout">
     <el-aside width="180px" class="aside">
@@ -31,7 +43,7 @@ const active = () => {
       </el-menu>
     </el-aside>
 
-    <el-container>
+    <el-container class="body">
       <el-main class="main">
         <router-view />
       </el-main>
@@ -42,6 +54,12 @@ const active = () => {
 <style scoped>
 .layout {
   height: 100vh;
+}
+.body {
+  /* 关键：允许 flex 子项收缩，el-main 的 overflow:auto 才能真正滚动，
+     内容不足时也不会把外层撑出视口 */
+  min-width: 0;
+  min-height: 0;
 }
 .aside {
   background: #1f2d3d;

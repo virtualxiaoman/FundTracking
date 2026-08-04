@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getRanking } from '@/api'
 import FundChartDialog from '@/components/FundChartDialog.vue'
@@ -30,6 +30,20 @@ const loading = ref(false)
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = 50
+
+// 表格最大高度：视口高 - 页头/范围栏/分页器等占位；内容少时表格自适应，不会撑出滚动
+const viewportH = ref(window.innerHeight)
+const tableMaxHeight = computed(() => Math.max(240, viewportH.value - 230))
+
+const onResize = () => {
+  viewportH.value = window.innerHeight
+}
+
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+  loadRanking()
+})
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
 const loadRanking = async () => {
   loading.value = true
@@ -83,8 +97,6 @@ const openChart = (row) => {
   currentFund.value = { fund_code: row.fund_code, fund_name: row.fund_name }
   showChart.value = true
 }
-
-onMounted(loadRanking)
 </script>
 
 <template>
@@ -121,7 +133,7 @@ onMounted(loadRanking)
         :data="rows"
         v-loading="loading"
         stripe
-        height="calc(100vh - 230px)"
+        :max-height="tableMaxHeight"
         class="rank-table"
         @row-click="openChart"
       >
