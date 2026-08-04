@@ -10,7 +10,7 @@ const downColor = '#0ca30c'
 
 // 时间范围
 const ranges = [
-  { value: 'TODAY', label: '今日' },
+  { value: '1D', label: '今日' },
   { value: '1W', label: '近1周' },
   { value: '1M', label: '近1月' },
   { value: '3M', label: '近3月' },

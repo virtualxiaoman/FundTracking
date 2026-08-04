@@ -32,7 +32,7 @@ from src.funds.fund_estimation import FundEstimationRepository
 from src.funds.fund_history import FundHistoryRepository
 from src.funds.fund_info import FundInfoRepository
 from src.portfolio.holdings import HoldingsRepository
-from src.ranking.repository import FundRankingRepository
+from src.ranking.fund_rank import FundRankingRepository
 from src.web.ranking_api import create_ranking_router
 
 app = FastAPI(title="基金持仓看板")

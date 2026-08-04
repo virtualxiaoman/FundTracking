@@ -8,13 +8,13 @@
 
 说明:
 - 完全独立于 src/funds、src/config、src/portfolio 已有代码
-- range 的计算直接复用 FundHistoryRepository 提供的快捷接口
-- 只统计"首条与末条都在查询窗口内"的基金，窗口外的基金(如今年发售的
-  基金查询近3年)不进入该 range 的排名；无净值数据的同样不显示
+- 只统计"成立时间早于窗口开始日期"的基金，新基金不会进入长周期排名
+- 无净值数据的基金不会进入对应 range 排名
 """
 
 from __future__ import annotations
 
+import calendar
 import json
 import pickle
 import threading
@@ -29,19 +29,19 @@ from src.funds.fund_history import FundHistoryRepository
 RANKING_DIR = DATA_DIR / "ranking"
 RANKING_CACHE_PATH = RANKING_DIR / "ranking.json"
 
-# 支持的查询范围及其对应 FundHistoryRepository 快捷接口
-RANGE_MAP: dict[str, Callable[[str], FundHistoryCache]] = {
-    "TODAY": FundHistoryRepository.get_today_history,
-    "1W": FundHistoryRepository.get_last_week_history,
-    "1M": FundHistoryRepository.get_last_month_history,
-    "3M": FundHistoryRepository.get_last_3_months_history,
-    "1Y": FundHistoryRepository.get_last_year_history,
-    "3Y": FundHistoryRepository.get_last_3_years_history,
-    "5Y": FundHistoryRepository.get_last_5_years_history,
-    "ALL": None,  # 全部历史
-}
+# 支持的查询范围
+RANGE_KEYS = (
+    "1D",
+    "1W",
+    "1M",
+    "3M",
+    "1Y",
+    "3Y",
+    "5Y",
+    "ALL",
+)
 
-# 索引有效期(秒)。扫描全部缓存较慢，落盘后短时间内直接复用。
+# 索引有效期
 INDEX_TTL_SECONDS = 12 * 3600
 
 
@@ -69,7 +69,7 @@ class FundRankingRepository:
         获取指定范围的基金涨跌幅排名。
 
         Args:
-            range_key: RANGE_MAP 的 key (TODAY/1W/1M/3M/1Y/3Y/5Y/ALL)
+            range_key: RANGE_MAP 的 key (1D/1W/1M/3M/1Y/3Y/5Y/ALL)
             sort: desc=涨幅从高到低, asc=跌幅从高到低
             limit: 返回条数限制, None 返回全部
 
@@ -77,7 +77,7 @@ class FundRankingRepository:
             [{fund_code, fund_name, first_date, last_date, first_nav,
               last_nav, change_rate}, ...] 已按涨跌幅排序
         """
-        if range_key not in RANGE_MAP:
+        if range_key not in RANGE_KEYS:
             raise ValueError(f"unknown range: {range_key}")
 
         with self._lock:
@@ -95,7 +95,7 @@ class FundRankingRepository:
 
     @property
     def ranges(self) -> list[str]:
-        return list(RANGE_MAP.keys())
+        return list(RANGE_KEYS)
 
     # =========================
     # 索引构建
@@ -132,17 +132,19 @@ class FundRankingRepository:
     def _build_and_save(self):
         """扫描全部基金缓存，构建索引并落盘。"""
         print("[FundRankingRepository] 开始扫描全部基金历史缓存...")
-        index: dict[str, list[dict]] = {k: [] for k in RANGE_MAP}
+        index: dict[str, list[dict]] = {k: [] for k in RANGE_KEYS}
         count = 0
 
         for cache in self._iter_all_caches():
             code = cache.fund_code
-            for range_key in RANGE_MAP:
+            name = getattr(cache, "fund_name", "")
+            for range_key in RANGE_KEYS:
                 change = self._compute_change(cache, range_key)
                 if change is None:
                     continue
                 index[range_key].append({
                     "fund_code": code,
+                    "fund_name": name,
                     "first_date": change["first_date"],
                     "last_date": change["last_date"],
                     "first_nav": change["first_nav"],
@@ -166,7 +168,6 @@ class FundRankingRepository:
         for path in files:
             try:
                 with path.open("rb") as f:
-                    import pickle
                     cache: FundHistoryCache = pickle.load(f)
                 if cache.items:
                     caches.append(cache)
@@ -177,23 +178,52 @@ class FundRankingRepository:
     @staticmethod
     def _compute_change(cache: FundHistoryCache, range_key: str) -> dict | None:
         """
-        计算某基金在指定范围内的首末净值涨跌幅。
-        首条与末条都必须落在窗口内，否则返回 None（窗口外不显示）。
+        计算指定区间涨跌幅。
+        规则：
+        1. ALL 使用全部历史；
+        2. 其它区间要求基金成立时间早于窗口开始；
+        3. 区间内至少有两条净值；
+        4. 起点采用窗口内第一条净值， 终点采用窗口内最后一条净值。
         """
         items = cache.items
-        if not items:
+
+        if len(items) < 2:
             return None
 
-        start_date = _range_start_date(range_key)
-        if start_date is not None:
-            # 取窗口内数据；若窗口内无任何数据则不在该范围展示
-            window = [it for it in items if it.date >= start_date]
-            if not window:
-                return None
-        else:
-            window = items
+        # 最近一个交易日
+        if range_key == "1D":
+            first = items[-2]
+            last = items[-1]
 
-        first, last = window[0], window[-1]
+            return {
+                "first_date": first.date.isoformat(),
+                "last_date": last.date.isoformat(),
+                "first_nav": first.unit_nav,
+                "last_nav": last.unit_nav,
+                "change_rate": _nav_change(
+                    first.unit_nav,
+                    last.unit_nav,
+                ),
+            }
+
+        if range_key == "ALL":
+            first = items[0]
+            last = items[-1]
+        else:
+            start_date = _range_start_date(range_key)
+            # 新基金不参与该区间排名
+            if items[0].date > start_date:
+                return None
+
+            window = [item for item in items if item.date >= start_date]
+
+            # 至少两条净值才能计算收益率
+            if len(window) < 2:
+                return None
+
+            first = window[0]
+            last = window[-1]
+
         return {
             "first_date": first.date.isoformat(),
             "last_date": last.date.isoformat(),
@@ -224,8 +254,6 @@ def _nav_change(first_nav: float, last_nav: float) -> float:
 def _range_start_date(range_key: str) -> date | None:
     """返回各 range 的窗口起点日期；ALL 返回 None。"""
     today = date.today()
-    if range_key == "TODAY":
-        return today
     if range_key == "1W":
         return today - timedelta(days=7)
     if range_key == "1M":
@@ -243,19 +271,23 @@ def _range_start_date(range_key: str) -> date | None:
 
 def _shift_month(months: int) -> date:
     today = date.today()
-    year, month = today.year, today.month + months
+    year = today.year
+    month = today.month + months
     while month <= 0:
         year -= 1
         month += 12
     while month > 12:
         year += 1
         month -= 12
-    return date(year, month, min(today.day, 28))
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(today.day, last_day))
 
 
 def _shift_year(years: int) -> date:
     today = date.today()
-    return date(today.year + years, today.month, today.day)
+    year = today.year + years
+    last_day = calendar.monthrange(year, today.month)[1]
+    return date(year, today.month, min(today.day, last_day))
 
 
 if __name__ == "__main__":
@@ -264,8 +296,8 @@ if __name__ == "__main__":
         rows = repo.get_ranking(rng, sort="desc", limit=3)
         print(f"\n[{rng}] 涨幅 TOP3:")
         for r in rows:
-            print(f"  {r['fund_code']} {r['change_rate']*100:+.2f}%")
+            print(f"  {r['fund_code']} {r['change_rate'] * 100:+.2f}%")
         rows = repo.get_ranking(rng, sort="asc", limit=3)
         print(f"[{rng}] 跌幅 TOP3:")
         for r in rows:
-            print(f"  {r['fund_code']} {r['change_rate']*100:+.2f}%")
+            print(f"  {r['fund_code']} {r['change_rate'] * 100:+.2f}%")

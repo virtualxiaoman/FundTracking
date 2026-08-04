@@ -16,10 +16,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from src.funds.fund_info import FundInfoRepository
-from src.ranking.repository import RANGE_MAP, FundRankingRepository
+from src.ranking.fund_rank import RANGE_KEYS, FundRankingRepository
 
 
-def create_ranking_router(repo: FundRankingRepository, fund_info: FundInfoRepository) -> APIRouter:
+def create_ranking_router(rank_repo: FundRankingRepository, info_repo: FundInfoRepository) -> APIRouter:
     """创建排名路由，注入共享的排名仓库与基金信息仓库。"""
     router = APIRouter(prefix="/api", tags=["ranking"])
 
@@ -31,14 +31,14 @@ def create_ranking_router(repo: FundRankingRepository, fund_info: FundInfoReposi
         page_size: int = Query(50, ge=1, le=500),
     ):
         """全部基金按指定时间范围的涨跌幅排名（分页）。"""
-        if range not in RANGE_MAP:
-            raise HTTPException(status_code=422, detail=f"不支持的 range: {range}，可选 {list(RANGE_MAP)}")
+        if range not in RANGE_KEYS:
+            raise HTTPException(status_code=422, detail=f"不支持的 range: {range}，可选 {list(RANGE_KEYS)}")
         if sort not in ("asc", "desc"):
             raise HTTPException(status_code=422, detail="sort 只能为 asc 或 desc")
 
         try:
             # 取未分页的完整排序结果，接口层做分页切片
-            all_rows = repo.get_ranking(range, sort=sort, limit=None)
+            all_rows = rank_repo.get_ranking(range, sort=sort, limit=None)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"排名查询失败: {e}")
 
@@ -48,17 +48,15 @@ def create_ranking_router(repo: FundRankingRepository, fund_info: FundInfoReposi
 
         result = []
         for r in page_rows:
-            fund = fund_info.get_by_code(r["fund_code"])
-            if fund is None:
-                continue  # 无名称信息的基金不展示
+            fund = info_repo.get_by_code(r["fund_code"])
             result.append({
                 "fund_code": r["fund_code"],
-                "fund_name": fund.name,
+                "fund_name": fund.name if fund else r.get("fund_name", r["fund_code"]),
                 "first_date": r["first_date"],
                 "last_date": r["last_date"],
                 "first_nav": r["first_nav"],
                 "last_nav": r["last_nav"],
-                "change_rate": r["change_rate"],  # 小数，如 0.0125 表示 +1.25%
+                "change_rate": r["change_rate"],
             })
 
         return {

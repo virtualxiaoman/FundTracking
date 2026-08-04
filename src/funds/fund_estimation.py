@@ -27,7 +27,7 @@ class FundEstimationRepository:
     """
 
     def __init__(self, providers: list[FundEstimationProvider], default_source: str = "eastmoney",
-                 cache_seconds: int = 30):
+                 cache_seconds: int = 60):
         """
         缓存: key: (fund_code, source), value: FundEstimation
         例如:
@@ -114,7 +114,7 @@ class FundEstimationRepository:
         raise FundEstimationUnavailableError(fund_code, errors)
 
     def get_estimations(self, fund_codes: Iterable[str], force: bool = False, source: str | None = None,
-                        max_workers: int = 8) -> dict[str, FundEstimation]:
+                        max_workers: int = 16) -> dict[str, FundEstimation]:
         """
         批量获取基金估值 使用线程池并发。
         Args:
