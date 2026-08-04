@@ -150,9 +150,11 @@ const drawLine = (items) => {
           const list = Array.isArray(params) ? params : [params]
           if (!list.length) return ''
           const date = list[0].axisValue
-          const changeRow = list.find((q) => q.seriesName === '涨跌幅')
-          const pct = changeRow && changeRow.value !== null && changeRow.value !== undefined
-            ? Number(changeRow.value).toFixed(2) + '%'
+          // 用数据点索引直接反查当日涨跌幅，不依赖隐藏序列的 params
+          const idx = list[0].dataIndex
+          const raw = change[idx]
+          const pct = raw !== null && raw !== undefined
+            ? Number(raw).toFixed(2) + '%'
             : '--'
           const rows = list
             .filter((p) => p.seriesName === '单位净值' || p.seriesName === '累计净值')
