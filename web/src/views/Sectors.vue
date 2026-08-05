@@ -84,7 +84,11 @@ const drawLine = (items) => {
     resizeObserver.observe(el)
   }
   const dates = items.map((i) => i.date)
-  const rates = items.map((i) => (i.change_rate === null ? null : i.change_rate * 100))
+  // 曲线画净值；悬浮时展示当日涨跌幅
+  const navs = items.map((i) => (i.nav === null || i.nav === undefined ? null : i.nav))
+  const rates = items.map((i) =>
+    i.change_rate === null || i.change_rate === undefined ? null : i.change_rate * 100
+  )
 
   chart.setOption(
     {
@@ -100,17 +104,24 @@ const drawLine = (items) => {
           const list = Array.isArray(params) ? params : [params]
           if (!list.length) return ''
           const date = list[0].axisValue
-          const v = list[0].value
-          const pct = v !== null && v !== undefined ? `${Number(v).toFixed(2)}%` : '--'
+          const idx = list[0].dataIndex
+          const nav = navs[idx]
+          const pct = rates[idx] !== null && rates[idx] !== undefined
+            ? `${Number(rates[idx]).toFixed(2)}%`
+            : '--'
           return `<div style="font-size:12px;color:#898781;margin-bottom:2px;">${date}</div>
             <div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
               <span style="display:inline-block;width:14px;height:2px;border-radius:1px;background:#2a78d6;"></span>
+              <span style="color:#52514e;">净值</span>
+              <span style="margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;">${nav !== null && nav !== undefined ? Number(nav).toFixed(4) : '--'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
               <span style="color:#52514e;">涨跌幅</span>
               <span style="margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;">${pct}</span>
             </div>`
         },
       },
-      grid: { left: 52, right: 24, top: 32, bottom: 40 },
+      grid: { left: 56, right: 56, top: 32, bottom: 40 },
       xAxis: {
         type: 'category',
         boundaryGap: false,
@@ -119,27 +130,50 @@ const drawLine = (items) => {
         axisTick: { show: false },
         axisLabel: { color: '#898781', fontSize: 11 },
       },
-      yAxis: {
-        type: 'value',
-        scale: true,
-        axisLabel: { color: '#898781', fontSize: 11, formatter: '{value}%' },
-        splitLine: { lineStyle: { color: '#e1e0d9' } },
-      },
+      yAxis: [
+        {
+          type: 'value',
+          scale: true,
+          axisLabel: { color: '#898781', fontSize: 11 },
+          splitLine: { lineStyle: { color: '#e1e0d9' } },
+          name: '净值',
+          nameTextStyle: { color: '#898781', fontSize: 11 },
+        },
+        {
+          type: 'value',
+          scale: true,
+          axisLabel: { color: '#898781', fontSize: 11, formatter: '{value}%' },
+          splitLine: { show: false },
+          name: '涨跌幅',
+          nameTextStyle: { color: '#898781', fontSize: 11 },
+        },
+      ],
       dataZoom: [
         { type: 'inside', throttle: 50 },
         { type: 'slider', height: 16, bottom: 6 },
       ],
       series: [
         {
-          name: '涨跌幅',
+          name: '净值',
           type: 'line',
-          data: rates,
+          data: navs,
           smooth: true,
           showSymbol: false,
           lineStyle: { width: 2, color: '#2a78d6' },
           itemStyle: { color: '#2a78d6' },
           areaStyle: { color: 'rgba(42, 120, 214, 0.10)' },
           emphasis: { focus: 'series' },
+        },
+        {
+          // 涨跌幅作为辅助序列，用于右轴与悬浮，不画线
+          name: '涨跌幅',
+          type: 'line',
+          yAxisIndex: 1,
+          data: rates,
+          showSymbol: false,
+          lineStyle: { width: 0 },
+          itemStyle: { color: 'transparent' },
+          tooltip: { show: false },
         },
       ],
     },
@@ -191,14 +225,19 @@ onBeforeUnmount(closeChart)
             </div>
 
             <!-- 折叠时隐藏子板块 -->
-            <template v-if="!collapsed">
-              <div v-for="child in main.children" :key="child.id" class="child-row" @click="openChart(child)">
+            <div v-if="!collapsed" class="child-grid">
+              <div
+                v-for="child in main.children"
+                :key="child.id"
+                class="child-card"
+                @click="openChart(child)"
+              >
                 <span class="child-name">{{ child.name }}</span>
                 <span class="child-rate" :style="{ color: rateColor(child.change_rate) }">
                   {{ fmtRate(child.change_rate) }}
                 </span>
               </div>
-            </template>
+            </div>
           </div>
         </div>
       </template>
@@ -270,25 +309,39 @@ onBeforeUnmount(closeChart)
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.child-row {
+.child-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  padding: 12px 16px;
+}
+.child-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px 10px 28px;
+  padding: 8px 12px;
   cursor: pointer;
-  border-top: 1px solid #f0f0f0;
-  transition: background 0.15s;
+  border: 1px solid #eceef1;
+  border-radius: 8px;
+  transition: background 0.15s, border-color 0.15s;
 }
-.child-row:hover {
+.child-card:hover {
   background: #f7f9fc;
+  border-color: #d6dce4;
 }
 .child-name {
-  font-size: 14px;
+  font-size: 13px;
   color: #52514e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .child-rate {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 .skeleton {
   margin-top: 8px;

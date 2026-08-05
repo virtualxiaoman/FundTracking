@@ -38,7 +38,7 @@ SECTOR_ARCHIVE_DIR = SECTORS_DIR / "sectors"
 ETF_CSV_COLUMNS = ["日期", "名称", "开盘", "收盘", "最高", "最低",
                    "成交量", "成交额", "涨跌额", "涨跌幅"]
 # 板块单文件归档的列顺序
-SECTOR_CSV_COLUMNS = ["日期", "涨跌幅", "ETF数量"]
+SECTOR_CSV_COLUMNS = ["日期", "净值", "涨跌幅", "ETF数量"]
 
 
 @dataclass(slots=True)
@@ -361,7 +361,7 @@ class ETFDataFetcher:
             path = SECTOR_ARCHIVE_DIR / f"{s.id}.csv"
             path.parent.mkdir(parents=True, exist_ok=True)
 
-            row = {"日期": trade_date or "", "涨跌幅": s.change_rate, "ETF数量": len(s.etfs)}
+            row = {"日期": trade_date or "", "净值": s.nav, "涨跌幅": s.change_rate, "ETF数量": len(s.etfs)}
 
             existing: pd.DataFrame
             if path.exists():

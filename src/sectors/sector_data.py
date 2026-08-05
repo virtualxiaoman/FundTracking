@@ -37,6 +37,7 @@ class EtfInfo:
     fund_code: str
     fund_name: str
     change_rate: float | None  # 涨跌幅，原始值(如 0.125 表示 +12.5%)
+    nav: float | None = None   # 收盘价(净值)
 
 
 @dataclass(slots=True)
@@ -45,6 +46,7 @@ class SectorData:
     id: str
     name: str
     change_rate: float | None  # 板块涨跌幅(小数)，无数据时为 None
+    nav: float | None = None   # 板块净值(绑定 ETF 收盘均值)
     etfs: list[EtfInfo] = field(default_factory=list)  # 绑定的 ETF 明细
 
 
@@ -54,6 +56,7 @@ class MainSectorData:
     id: str
     name: str
     change_rate: float | None  # 子板块均值，所有子板块无数据时为 None
+    nav: float | None = None   # 子板块净值均值
     children: list[SectorData] = field(default_factory=list)
 
 
@@ -90,6 +93,7 @@ class SectorRepository:
         for main_id, main_cfg in tree.items():
             children: list[SectorData] = []
             main_changes: list[float] = []
+            main_navs: list[float] = []
             # 该主板块下的子板块映射，如 {ai: [codes], semiconductor: [...]}
             main_map: dict = etf_map.get(main_id, {})
 
@@ -98,11 +102,14 @@ class SectorRepository:
                 children.append(child)
                 if child.change_rate is not None:
                     main_changes.append(child.change_rate)
+                if child.nav is not None:
+                    main_navs.append(child.nav)
 
             main_sectors.append(MainSectorData(
                 id=main_id,
                 name=main_cfg["name"],
                 change_rate=_mean(main_changes),
+                nav=_mean(main_navs),
                 children=children,
             ))
 
@@ -118,10 +125,16 @@ class SectorRepository:
 
     def get_sector_history(self, sector_id: str) -> list[dict]:
         """
-        读取单个板块的历史涨跌幅序列。
+        读取单个板块(主板块或子板块)的历史序列。
         从 sectors/{id}.csv 归档读取，按日期升序。
-        返回 [{date, change_rate}, ...]；板块无归档或无数据时返回空列表。
+        子板块 CSV 列: 日期,净值,涨跌幅,ETF数量(净值/涨跌幅均为小数)。
+        主板块无独立 CSV，由子板块 CSV 按交易日聚合(净值/涨跌幅取子板块均值)。
+        返回 [{date, nav, change_rate}, ...]；无数据时返回空列表。
         """
+        is_main = sector_id in self._main_sector_ids()
+        if is_main:
+            return self._aggregate_main_sector_history(sector_id)
+
         path = self.sector_archive_dir / f"{sector_id}.csv"
         if not path.exists():
             return []
@@ -136,9 +149,47 @@ class SectorRepository:
             d = str(rec.get("日期", "")).strip()
             if not d:
                 continue
-            change = _csv_change_to_ratio(rec.get("涨跌幅"))
-            rows.append({"date": d, "change_rate": change})
+            # 归档中已是小数(如 0.05 表示 +5%)，直接读取，不再转换
+            rows.append({
+                "date": d,
+                "nav": _to_float(rec.get("净值")),
+                "change_rate": _to_float(rec.get("涨跌幅")),
+            })
         rows.sort(key=lambda r: r["date"])
+        return rows
+
+    def _main_sector_ids(self) -> set[str]:
+        """全部主板块 id。"""
+        tree = self._load_yaml(self.sector_tree_path)
+        return set(tree.keys())
+
+    def _aggregate_main_sector_history(self, main_id: str) -> list[dict]:
+        """
+        主板块历史: 由该主板块下所有子板块 CSV 按交易日聚合。
+        净值/涨跌幅取子板块当日均值。
+        """
+        tree = self._load_yaml(self.sector_tree_path)
+        main_cfg = tree.get(main_id)
+        if main_cfg is None:
+            return []
+        child_ids = [child["id"] for child in main_cfg.get("children", [])]
+
+        # 按日期聚合: {date: {子板块id: {nav, change_rate}}}
+        per_day: dict[str, dict[str, dict]] = {}
+        for child_id in child_ids:
+            for row in self.get_sector_history(child_id):
+                per_day.setdefault(row["date"], {})[child_id] = row
+
+        rows: list[dict] = []
+        for d in sorted(per_day):
+            child_rows = per_day[d]
+            navs = [r["nav"] for r in child_rows.values() if r["nav"] is not None]
+            changes = [r["change_rate"] for r in child_rows.values() if r["change_rate"] is not None]
+            rows.append({
+                "date": d,
+                "nav": _mean(navs),
+                "change_rate": _mean(changes),
+            })
         return rows
 
     # =========================
@@ -157,23 +208,29 @@ class SectorRepository:
 
         etfs: list[EtfInfo] = []
         changes: list[float] = []
+        navs: list[float] = []
         for code in codes:
             row = etf_rows.get(code)
             if row is None:
                 continue  # ETF 在 CSV 中缺失，跳过
             change = _csv_change_to_ratio(row.get("涨跌幅"))
+            nav = _to_float(row.get("最新价") or row.get("收盘"))
             etfs.append(EtfInfo(
                 fund_code=code,
                 fund_name=row.get("名称", code),
                 change_rate=change,
+                nav=nav,
             ))
             if change is not None:
                 changes.append(change)
+            if nav is not None:
+                navs.append(nav)
 
         return SectorData(
             id=sid,
             name=name,
             change_rate=_mean(changes),
+            nav=_mean(navs),
             etfs=etfs,
         )
 
@@ -253,6 +310,19 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
+def _to_float(value: Any) -> float | None:
+    """安全转 float；空值/非法值返回 None。"""
+    try:
+        if value is None or pd.isna(value):
+            return None
+        f = float(value)
+        if f != f:  # NaN
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
 def _csv_change_to_ratio(value: Any) -> float | None:
     """CSV 涨跌幅列(如 9.88 表示 +9.88%)转小数(0.0988)；非法值返回 None。"""
     try:
@@ -269,11 +339,13 @@ def sector_data_to_dict(sector: SectorData) -> dict:
         "id": sector.id,
         "name": sector.name,
         "change_rate": sector.change_rate,
+        "nav": sector.nav,
         "etfs": [
             {
                 "fund_code": e.fund_code,
                 "fund_name": e.fund_name,
                 "change_rate": e.change_rate,
+                "nav": e.nav,
             }
             for e in sector.etfs
         ],
@@ -286,6 +358,7 @@ def main_sector_to_dict(main: MainSectorData) -> dict:
         "id": main.id,
         "name": main.name,
         "change_rate": main.change_rate,
+        "nav": main.nav,
         "children": [sector_data_to_dict(c) for c in main.children],
     }
 
