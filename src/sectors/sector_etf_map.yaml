@@ -1,0 +1,78 @@
+# 板块 → ETF 代码 映射表
+#
+# 依据 data/sectors/fund_etf_spot_em.csv 中的 ETF 快照人工整理。
+# 每个子板块映射若干代表 ETF（优先选择规模/流动性较好的主流 ETF），
+# 板块涨跌幅 = 其绑定 ETF 涨跌幅的均值。
+#
+# null 表示该板块在当前 ETF 快照中找不到对应的 ETF（如算力、CXO、铜等）。
+# 主板块不在此映射，其涨跌幅由子板块聚合得出。
+#
+# 说明: 本映射表在代码运行时直接使用，板块涨跌幅不依赖名称模糊匹配。
+
+technology:
+  ai: ["589310", "588760", "588730"]            # 人工智能
+  semiconductor: ["588170", "512480"]           # 半导体
+  cpo: null                                     # CPO/光模块：快照中无对应 ETF
+  communication: ["515880", "515050", "159994"] # 通信设备
+  software: ["159852", "562930"]                # 软件服务
+  cloud_computing: ["516510", "159890"]         # 云计算
+  computing_power: null                         # 算力：快照中无对应 ETF
+  consumer_electronics: ["561100", "159732"]    # 消费电子
+  robotics: ["562500", "159770", "159039"]      # 机器人
+
+new_energy:
+  photovoltaic: ["515790", "159857"]            # 光伏
+  wind_power: ["159046", "562550"]              # 风电（用绿电 ETF 代表）
+  energy_storage: ["159566", "159305"]          # 储能
+  lithium_battery: ["159840"]                   # 锂电池
+  new_energy_vehicle: ["515030", "159824"]      # 新能源汽车
+
+medical:
+  innovative_drug: ["517120", "159622"]         # 创新药
+  cxo: null                                     # CXO：快照中无对应 ETF
+  medical_device: ["159883", "562600"]          # 医疗器械
+  traditional_chinese_medicine: ["560080", "159647"]  # 中药
+  medical_service: ["512170", "159828"]         # 医疗服务
+
+consumer:
+  liquor: ["512690"]                            # 白酒（用酒 ETF 代表）
+  food_beverage: ["515170", "515710"]           # 食品饮料
+  tourism: ["159766", "562510"]                 # 旅游酒店
+  home_appliance: ["159996", "159328"]          # 家电
+  beauty: null                                  # 美容护理：快照中无对应 ETF
+
+finance:
+  securities: ["512000", "159842"]              # 券商
+  banking: ["512800", "512700"]                 # 银行
+  insurance: ["512070"]                         # 保险
+  dividend: ["510880", "159905"]                # 红利
+
+resources:
+  gold: ["518880", "159937"]                    # 黄金
+  oil: ["561360", "159019"]                     # 石油
+  coal: ["515220"]                              # 煤炭
+  copper: null                                  # 铜：快照中无对应 ETF
+  rare_earth: ["516780", "159713"]              # 稀土
+
+military:
+  defense: ["512660", "512710"]                 # 国防军工
+  aerospace: ["159227", "159208"]               # 航空航天
+  satellite: ["159206", "563230"]               # 卫星互联网
+
+manufacturing:
+  industrial_mother_machine: ["159667"]         # 工业母机
+  automation: null                              # 工业自动化：快照中无对应 ETF
+  high_end_equipment: ["516320", "159638"]      # 高端装备
+
+real_estate:
+  real_estate: ["512200", "515060"]             # 房地产
+  infrastructure: ["516970", "159635"]          # 基建工程
+  building_material: ["159745", "516750"]       # 建筑材料
+
+overseas:
+  nasdaq: ["159632", "513300"]                  # 纳斯达克
+  sp500: ["513500", "159655"]                   # 标普500
+  heng_seng_tech: ["513130", "513580"]          # 恒生科技
+  china_internet: ["513050", "159605"]          # 中概互联网
+  japan: ["513520", "513000"]                   # 日经225
+  india: null                                   # 印度市场：快照中无对应 ETF

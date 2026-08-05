@@ -33,6 +33,8 @@ from src.funds.fund_history import FundHistoryRepository
 from src.funds.fund_info import FundInfoRepository
 from src.portfolio.holdings import HoldingsRepository
 from src.ranking.fund_rank import FundRankingRepository
+from src.sectors.sector_api import create_sector_router
+from src.sectors.sector_data import SectorRepository
 from src.web.ranking_api import create_ranking_router
 
 app = FastAPI(title="基金持仓看板")
@@ -65,6 +67,10 @@ _holdings = HoldingsRepository()
 # 全部基金历史排名（首次查询构建索引，之后读磁盘缓存）
 _ranking = FundRankingRepository(_fund_history)
 app.include_router(create_ranking_router(_ranking, _fund_info))
+
+# 板块涨跌幅（读取 ETF 快照 CSV + 板块树 + 映射表）
+_sectors = SectorRepository()
+app.include_router(create_sector_router(_sectors))
 
 
 # ============================================================

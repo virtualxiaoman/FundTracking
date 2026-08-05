@@ -6,6 +6,7 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 DATA_DIR = PROJECT_ROOT / "data"
 FUNDS_DIR = DATA_DIR / "funds"
 PORTFOLIO_DIR = DATA_DIR / "portfolio"
+SECTORS_DIR = DATA_DIR / "sectors"
 
 FUND_LIST_CACHE_PATH = FUNDS_DIR / "info/fund_list_cache.pkl"
 
