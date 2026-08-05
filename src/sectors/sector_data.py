@@ -163,14 +163,13 @@ class SectorRepository:
         读取 ETF 数据为 {代码: {列名: 值}} 映射。
 
         Args:
-            trade_date: 指定交易日(YYYY-MM-DD)，从 etf/YYYY-MM/YYYY-MM-DD.csv 读取；
+            trade_date: 指定交易日(YYYY-MM-DD)，从 etf/{代码}.csv 单文件归档读取该日数据；
                         None 时读取最新 spot 快照 fund_etf_spot_em.csv。
         """
         if trade_date:
-            csv_path = _archive_etf_path(trade_date)
-        else:
-            csv_path = SECTORS_DIR / "fund_etf_spot_em.csv"
+            return _load_etf_rows_from_archive(trade_date)
 
+        csv_path = SECTORS_DIR / "fund_etf_spot_em.csv"
         df = pd.read_csv(csv_path, dtype={"代码": str})
         df["代码"] = df["代码"].astype(str).str.strip()
         rows: dict[str, dict] = {}
@@ -181,10 +180,44 @@ class SectorRepository:
         return rows
 
 
-def _archive_etf_path(trade_date: str) -> Path:
-    """返回指定交易日(YYYY-MM-DD)的 ETF 归档路径 etf/YYYY-MM/YYYY-MM-DD.csv。"""
-    yyyymm = trade_date[:7]
-    return SECTORS_DIR / "etf" / yyyymm / f"{trade_date}.csv"
+def _load_etf_rows_from_archive(trade_date: str) -> dict[str, dict]:
+    """
+    从 etf/{代码}.csv 单文件归档读取指定交易日的全部 ETF 数据。
+    返回 {代码: {涨跌幅, 名称, ...}}。某 ETF 该日无数据则跳过。
+    """
+    etf_dir = SECTORS_DIR / "etf"
+    rows: dict[str, dict] = {}
+    if not etf_dir.exists():
+        raise FileNotFoundError(f"ETF 归档目录不存在: {etf_dir}")
+
+    for path in sorted(etf_dir.glob("*.csv")):
+        code = path.stem
+        try:
+            df = pd.read_csv(path, dtype={"日期": str})
+            # 找该日期的行
+            match = df[df["日期"] == trade_date]
+            if match.empty:
+                continue
+            rec = match.iloc[0]
+            rows[code] = {
+                "代码": code,
+                "名称": str(rec.get("名称", code)),
+                "涨跌幅": rec.get("涨跌幅"),
+                "收盘": rec.get("收盘"),
+                "最新价": rec.get("收盘"),
+                "开盘价": rec.get("开盘"),
+                "最高价": rec.get("最高"),
+                "最低价": rec.get("最低"),
+                "成交量": rec.get("成交量"),
+                "成交额": rec.get("成交额"),
+                "涨跌额": rec.get("涨跌额"),
+            }
+        except Exception:
+            continue
+
+    if not rows:
+        raise FileNotFoundError(f"该交易日无 ETF 归档数据: {trade_date}")
+    return rows
 
 
 def _mean(values: list[float]) -> float | None:

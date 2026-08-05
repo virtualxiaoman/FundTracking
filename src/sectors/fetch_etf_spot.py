@@ -5,16 +5,17 @@
 - ak.fund_etf_hist_em  单只 ETF 历史行情(含每日涨跌幅)，用于补历史数据
 - ak.fund_etf_spot_em  全市场 ETF 实时快照，用于当日兜底
 
-归档:
-- data/sectors/etf/YYYY-MM/YYYY-MM-DD.csv      关注 ETF 当日行情
-- data/sectors/sectors/YYYY-MM/YYYY-MM-DD.csv  当日板块涨跌幅(由 sector_data 计算)
+归档(每只 ETF / 每个板块一个文件, 每行一个交易日, 日期升序):
+- data/sectors/etf/{代码}.csv          单只关注 ETF 全部历史行情
+- data/sectors/sectors/{板块id}.csv    单个板块历史涨跌幅
 
 只保存"关注板块"映射表(sector_etf_map.yaml)中出现的 ETF，不保存全市场。
 
 用法:
     from src.sectors.fetch_etf_spot import ETFDataFetcher
     fetcher = ETFDataFetcher()
-    fetcher.fetch_and_archive_today()   # 抓当日并归档
+    fetcher.fetch_archive_today()   # 抓当日并归档(追加到单文件)
+    fetcher.archive_history(...)    # 补历史(追加到单文件)
 """
 
 from __future__ import annotations
@@ -32,6 +33,12 @@ from src.config.path import SECTORS_DIR
 ETF_MAP_PATH = Path(__file__).resolve().parent / "sector_etf_map.yaml"
 ETF_ARCHIVE_DIR = SECTORS_DIR / "etf"
 SECTOR_ARCHIVE_DIR = SECTORS_DIR / "sectors"
+
+# ETF 单文件归档的列顺序
+ETF_CSV_COLUMNS = ["日期", "名称", "开盘", "收盘", "最高", "最低",
+                   "成交量", "成交额", "涨跌额", "涨跌幅"]
+# 板块单文件归档的列顺序
+SECTOR_CSV_COLUMNS = ["日期", "涨跌幅", "ETF数量"]
 
 
 @dataclass(slots=True)
@@ -223,128 +230,171 @@ class ETFDataFetcher:
             )
         return result
 
-    def fetch_archive_today(self) -> tuple[Path | None, Path | None]:
+    def fetch_archive_today(self) -> tuple[int, int]:
         """
-        抓取当日关注 ETF 数据并归档。
-        返回 (etf_csv_path, sector_csv_path)，任一失败对应为 None。
+        抓取当日关注 ETF 数据并归档到单文件(追加/合并)。
+        返回 (更新的 ETF 数, 更新的板块数)。
         """
-        # 优先 hist(单只逐只)，失败或部分失败时用 spot 兜底整日
-        today = date.today()
-        yyyymm = today.strftime("%Y-%m")
-        yyyymmdd = today.strftime("%Y-%m-%d")
-
         etf_data = self.fetch_spot_today()
         if not etf_data:
             print("[ETFDataFetcher] 当日 ETF 数据抓取失败，跳过归档")
-            return None, None
+            return 0, 0
 
-        # 写入 etf 归档
-        etf_csv = self._write_etf_csv(etf_data, yyyymm, yyyymmdd)
+        n_etf = self._merge_etf_daily(etf_data)
+        n_sector = self._update_sector_daily()
+        return n_etf, n_sector
 
-        # 计算板块并归档
-        sector_csv = self._write_sector_csv(yyyymm, yyyymmdd)
-        return etf_csv, sector_csv
-
-    def archive_history(self, start_date: str, end_date: str) -> dict[str, tuple[Path | None, Path | None]]:
+    def archive_history(self, start_date: str, end_date: str) -> dict[str, tuple[int, int]]:
         """
-        拉取关注 ETF 在 [start_date, end_date] 窗口内的历史数据并逐日归档。
+        拉取关注 ETF 在 [start_date, end_date] 窗口内的历史数据并合并进单文件归档。
         start_date/end_date 格式 YYYYMMDD。
-        返回 {YYYY-MM-DD: (etf_csv, sector_csv)}，某日无数据则对应为 None。
+        返回 {YYYY-MM-DD: (新增ETF数, 新增板块数)}，某日无数据则对应 (0,0)。
         """
         codes = self.watched_codes()
         print(f"[ETFDataFetcher] 开始拉取 {len(codes)} 只关注 ETF 历史数据 ({start_date} ~ {end_date})")
 
-        # 按日期聚合: {trade_date: {code: ETFDayData}}
-        by_date: dict[str, dict[str, ETFDayData]] = {}
+        # 每只 ETF 的历史行，直接合并进对应单文件
+        total_new = 0
         for idx, code in enumerate(codes, 1):
             rows = self.fetch_etf_history(code, start_date, end_date)
-            for r in rows:
-                by_date.setdefault(r.trade_date, {})[code] = r
+            if rows:
+                total_new += self._merge_etf_rows(rows)
             if idx % 10 == 0:
                 print(f"[ETFDataFetcher] 已处理 {idx}/{len(codes)} 只...")
 
-        print(f"[ETFDataFetcher] 共 {len(by_date)} 个交易日, 开始归档")
-        result: dict[str, tuple[Path | None, Path | None]] = {}
-        for d in sorted(by_date):
-            yyyymm = d[:7]
-            etf_csv = self._write_etf_csv(by_date[d], yyyymm, d)
-            # 从该日归档的 ETF 数据计算板块(避免依赖默认 spot)
-            sector_csv = self._write_sector_csv_from_dir(yyyymm, d)
-            result[d] = (etf_csv, sector_csv)
+        # 重新计算各交易日板块并合并进板块单文件
+        dates = self._available_dates()
+        result: dict[str, tuple[int, int]] = {}
+        n_sector_total = 0
+        for d in sorted(dates):
+            n = self._update_sector_daily_for_date(d)
+            n_sector_total += n
+            result[d] = (0, n)  # ETF 已实时合并，这里只报告板块更新
+        print(f"[ETFDataFetcher] 归档完成: ETF 新增 {total_new} 行, 板块更新 {n_sector_total} 条")
         return result
 
-    @staticmethod
-    def _write_sector_csv_from_dir(yyyymm: str, yyyymmdd: str) -> Path | None:
-        """从指定日期的 etf 归档数据计算板块并写 sectors/YYYY-MM/YYYY-MM-DD.csv。"""
-        from src.sectors.sector_data import SectorRepository
-
-        repo = SectorRepository()
-        flatten = repo.get_flatten_sectors(trade_date=yyyymmdd)
-
-        out_dir = SECTOR_ARCHIVE_DIR / yyyymm
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{yyyymmdd}.csv"
-
-        rows = []
-        for s in flatten:
-            rows.append({
-                "板块id": s.id,
-                "板块名称": s.name,
-                "涨跌幅": s.change_rate,
-                "ETF数量": len(s.etfs),
-            })
-        df = pd.DataFrame(rows)
-        df.to_csv(path, index=False, encoding="utf-8-sig")
-        print(f"[ETFDataFetcher] 已归档板块数据: {path} ({len(rows)}个板块)")
-        return path
-
     # =========================
-    # 归档
+    # 归档(单文件)
     # =========================
 
-    @staticmethod
-    def _write_etf_csv(data: dict[str, ETFDayData], yyyymm: str, yyyymmdd: str) -> Path | None:
-        """写 etf/YYYY-MM/YYYY-MM-DD.csv。"""
-        if not data:
-            return None
-        out_dir = ETF_ARCHIVE_DIR / yyyymm
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{yyyymmdd}.csv"
+    def _merge_etf_daily(self, data: dict[str, ETFDayData]) -> int:
+        """兼容旧调用: dict {代码: ETFDayData}。"""
+        return self._merge_etf_rows(list(data.values()))
 
-        rows = [d.to_row() for d in sorted(data.values(), key=lambda x: x.fund_code)]
-        df = pd.DataFrame(rows)
-        # 统一列顺序
-        cols = ["代码", "名称", "日期", "开盘", "收盘", "最高", "最低",
-                "成交量", "成交额", "涨跌额", "涨跌幅"]
-        df = df[cols]
-        df.to_csv(path, index=False, encoding="utf-8-sig")
-        print(f"[ETFDataFetcher] 已归档 ETF 数据: {path} ({len(rows)}只)")
-        return path
+    def _merge_etf_rows(self, rows: list[ETFDayData]) -> int:
+        """
+        将多只 ETF 的单日(或多日)数据合并进 etf/{代码}.csv。
+        按日期升序、去重(同日期覆盖)。
+        返回实际写入的行数。
+        """
+        # 按代码分组
+        by_code: dict[str, list[ETFDayData]] = {}
+        for row in rows:
+            by_code.setdefault(row.fund_code, []).append(row)
 
-    @staticmethod
-    def _write_sector_csv(yyyymm: str, yyyymmdd: str) -> Path | None:
-        """调用 sector_data 计算当日板块涨跌幅并写 sectors/YYYY-MM/YYYY-MM-DD.csv。"""
-        from src.sectors.sector_data import SectorRepository
+        written = 0
+        for code, code_rows in by_code.items():
+            path = ETF_ARCHIVE_DIR / f"{code}.csv"
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-        repo = SectorRepository()
+            existing: pd.DataFrame
+            if path.exists():
+                existing = pd.read_csv(path, dtype={"日期": str})
+            else:
+                existing = pd.DataFrame(columns=ETF_CSV_COLUMNS)
+
+            new_df = pd.DataFrame([r.to_row() for r in code_rows])
+            # to_row 含 代码 列, 单文件内不需要
+            if "代码" in new_df.columns:
+                new_df = new_df.drop(columns=["代码"])
+
+            merged = pd.concat([existing, new_df], ignore_index=True)
+            merged = merged.drop_duplicates(subset=["日期"], keep="last")
+            merged = merged.sort_values("日期")
+            # 统一列顺序
+            merged = merged.reindex(columns=ETF_CSV_COLUMNS)
+            merged.to_csv(path, index=False, encoding="utf-8-sig")
+            written += len(code_rows)
+        return written
+
+    def _update_sector_daily(self) -> int:
+        """用最新 spot 数据更新所有板块单文件(每个板块一行/日)。返回更新的板块数。"""
+        repo = self._get_repo()
         flatten = repo.get_flatten_sectors()
-
-        out_dir = SECTOR_ARCHIVE_DIR / yyyymm
-        out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / f"{yyyymmdd}.csv"
-
-        rows = []
+        # 用最新交易日: 找第一个有 ETF 的板块的最近日期
+        trade_date = ""
         for s in flatten:
-            rows.append({
-                "板块id": s.id,
-                "板块名称": s.name,
-                "涨跌幅": s.change_rate,
-                "ETF数量": len(s.etfs),
-            })
-        df = pd.DataFrame(rows)
-        df.to_csv(path, index=False, encoding="utf-8-sig")
-        print(f"[ETFDataFetcher] 已归档板块数据: {path} ({len(rows)}个板块)")
-        return path
+            if s.etfs:
+                trade_date = self._latest_etf_date(s.etfs[0].fund_code)
+                break
+        return self._write_sector_rows(flatten, trade_date)
+
+    def _update_sector_daily_for_date(self, trade_date: str) -> int:
+        """用指定日期的 etf 归档数据更新板块单文件。返回更新的板块数。"""
+        repo = self._get_repo()
+        flatten = repo.get_flatten_sectors(trade_date=trade_date)
+        return self._write_sector_rows(flatten, trade_date)
+
+    def _write_sector_rows(self, flatten, trade_date: str) -> int:
+        """
+        将某个交易日的板块涨跌幅合并进 sectors/{板块id}.csv。
+        Args:
+            flatten: 板块列表
+            trade_date: 该日期的 YYYY-MM-DD
+        返回更新的板块数。
+        """
+        n = 0
+        for s in flatten:
+            if s.change_rate is None:
+                continue
+            path = SECTOR_ARCHIVE_DIR / f"{s.id}.csv"
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            row = {"日期": trade_date or "", "涨跌幅": s.change_rate, "ETF数量": len(s.etfs)}
+
+            existing: pd.DataFrame
+            if path.exists():
+                existing = pd.read_csv(path, dtype={"日期": str})
+            else:
+                existing = pd.DataFrame(columns=SECTOR_CSV_COLUMNS)
+
+            new_df = pd.DataFrame([row])
+            merged = pd.concat([existing, new_df], ignore_index=True)
+            merged = merged.drop_duplicates(subset=["日期"], keep="last")
+            merged = merged.sort_values("日期")
+            merged = merged.reindex(columns=SECTOR_CSV_COLUMNS)
+            merged.to_csv(path, index=False, encoding="utf-8-sig")
+            n += 1
+        return n
+
+    def _latest_etf_date(self, fund_code: str) -> str:
+        """读取 etf/{code}.csv 的最后一行日期(最新交易日)。"""
+        path = ETF_ARCHIVE_DIR / f"{fund_code}.csv"
+        if not path.exists():
+            return ""
+        try:
+            df = pd.read_csv(path, dtype={"日期": str})
+            if df.empty:
+                return ""
+            return str(df["日期"].iloc[-1])
+        except Exception:
+            return ""
+
+    def _available_dates(self) -> list[str]:
+        """收集 etf 单文件里出现过的全部交易日(交集)。"""
+        dates: set[str] = set()
+        for path in ETF_ARCHIVE_DIR.glob("*.csv"):
+            try:
+                df = pd.read_csv(path, dtype={"日期": str})
+                dates.update(str(d) for d in df["日期"] if pd.notna(d))
+            except Exception:
+                continue
+        return sorted(dates)
+
+    @staticmethod
+    def _get_repo():
+        from src.sectors.sector_data import SectorRepository
+        return SectorRepository()
 
     # =========================
     # 内部
