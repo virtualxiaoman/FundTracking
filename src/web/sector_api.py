@@ -40,5 +40,11 @@ def create_sector_router(repo: SectorRepository) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"该交易日无板块数据: {date} ({e})")
         return {"sectors": [sector_data_to_dict(s) for s in sectors]}
 
+    @router.get("/{sector_id}/history")
+    def get_sector_history(sector_id: str):
+        """单个板块的历史涨跌幅序列(读取 sectors/{id}.csv 归档)。"""
+        rows = repo.get_sector_history(sector_id)
+        return {"sector_id": sector_id, "items": rows}
+
     return router
 

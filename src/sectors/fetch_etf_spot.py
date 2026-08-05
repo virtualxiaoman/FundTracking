@@ -273,6 +273,17 @@ class ETFDataFetcher:
         print(f"[ETFDataFetcher] 归档完成: ETF 新增 {total_new} 行, 板块更新 {n_sector_total} 条")
         return result
 
+    def archive_all_history(self) -> dict[str, tuple[int, int]]:
+        """
+        拉取全部关注 ETF 的全部历史数据并合并进单文件归档。
+        东财 fund_etf_hist_em 优先；不可用时新浪 fund_etf_hist_sina 返回全量历史。
+        等价于用极宽日期窗口调用 archive_history。
+        """
+        # 新浪返回全量历史，传足够宽的窗口即可覆盖到最早上市日
+        start_date = "19900101"
+        end_date = date.today().strftime("%Y%m%d")
+        return self.archive_history(start_date, end_date)
+
     # =========================
     # 归档(单文件)
     # =========================

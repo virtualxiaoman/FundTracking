@@ -6,12 +6,14 @@ const menus = [
   { path: '/', label: '首页', icon: 'HomeFilled' },
   { path: '/holdings', label: '持仓', icon: 'Coin' },
   { path: '/ranking', label: '全部基金排行', icon: 'TrendCharts' },
+  { path: '/sectors', label: '板块', icon: 'Grid' },
 ]
 
 const route = useRoute()
 const active = () => {
   if (route.path.startsWith('/holdings')) return '/holdings'
   if (route.path.startsWith('/ranking')) return '/ranking'
+  if (route.path.startsWith('/sectors')) return '/sectors'
   return '/'
 }
 </script>

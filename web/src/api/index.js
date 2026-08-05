@@ -23,3 +23,9 @@ export const getHistory = (fundCode, range) =>
 // 全部基金排行（分页）
 export const getRanking = (range, sort = 'desc', page = 1, pageSize = 50) =>
   http.get('/ranking', { params: { range, sort, page, page_size: pageSize } })
+
+// 板块
+export const getSectorTree = (date) =>
+  http.get('/sectors/tree', { params: date ? { date } : {} })
+export const getSectorHistory = (sectorId) =>
+  http.get(`/sectors/${sectorId}/history`)

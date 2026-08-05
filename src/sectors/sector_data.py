@@ -68,6 +68,7 @@ class SectorRepository:
         self.sector_tree_path = sectors_dir / "sector_tree.yaml"
         self.etf_csv_path = sectors_dir / "fund_etf_spot_em.csv"
         self.etf_archive_dir = sectors_dir / "etf"
+        self.sector_archive_dir = sectors_dir / "sectors"
         self.etf_map_path = Path(__file__).resolve().parent / "sector_etf_map.yaml"
 
     # =========================
@@ -114,6 +115,31 @@ class SectorRepository:
         for main in self.get_sector_tree(trade_date):
             flatten.extend(main.children)
         return flatten
+
+    def get_sector_history(self, sector_id: str) -> list[dict]:
+        """
+        读取单个板块的历史涨跌幅序列。
+        从 sectors/{id}.csv 归档读取，按日期升序。
+        返回 [{date, change_rate}, ...]；板块无归档或无数据时返回空列表。
+        """
+        path = self.sector_archive_dir / f"{sector_id}.csv"
+        if not path.exists():
+            return []
+        try:
+            df = pd.read_csv(path, dtype={"日期": str})
+        except Exception as e:
+            print(f"[SectorRepository] 读取板块历史失败 {sector_id}: {e}")
+            return []
+
+        rows: list[dict] = []
+        for _, rec in df.iterrows():
+            d = str(rec.get("日期", "")).strip()
+            if not d:
+                continue
+            change = _csv_change_to_ratio(rec.get("涨跌幅"))
+            rows.append({"date": d, "change_rate": change})
+        rows.sort(key=lambda r: r["date"])
+        return rows
 
     # =========================
     # 内部实现
