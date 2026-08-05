@@ -67,16 +67,22 @@ class SectorRepository:
     def __init__(self, sectors_dir: Path = SECTORS_DIR):
         self.sector_tree_path = sectors_dir / "sector_tree.yaml"
         self.etf_csv_path = sectors_dir / "fund_etf_spot_em.csv"
+        self.etf_archive_dir = sectors_dir / "etf"
         self.etf_map_path = Path(__file__).resolve().parent / "sector_etf_map.yaml"
 
     # =========================
     # 公共接口
     # =========================
 
-    def get_sector_tree(self) -> list[MainSectorData]:
-        """返回主板块 → 子板块的完整层级涨跌幅结构。"""
+    def get_sector_tree(self, trade_date: str | None = None) -> list[MainSectorData]:
+        """返回主板块 → 子板块的完整层级涨跌幅结构。
+
+        Args:
+            trade_date: 指定交易日(YYYY-MM-DD)，从 etf/ 归档目录读取当日数据；
+                        None 时读取最新 spot 快照(fund_etf_spot_em.csv)。
+        """
         tree = self._load_yaml(self.sector_tree_path)
-        etf_rows = self._load_etf_rows()
+        etf_rows = self._load_etf_rows(trade_date)
         etf_map = self._load_yaml(self.etf_map_path)
 
         main_sectors = []
@@ -101,11 +107,11 @@ class SectorRepository:
 
         return main_sectors
 
-    def get_flatten_sectors(self) -> list[SectorData]:
+    def get_flatten_sectors(self, trade_date: str | None = None) -> list[SectorData]:
         """返回平铺的所有子板块涨跌幅列表（不含主板块层级）。"""
         # 内部复用 get_sector_tree，从层级结果中摊平子板块
         flatten: list[SectorData] = []
-        for main in self.get_sector_tree():
+        for main in self.get_sector_tree(trade_date):
             flatten.extend(main.children)
         return flatten
 
@@ -152,9 +158,19 @@ class SectorRepository:
             return yaml.safe_load(f) or {}
 
     @staticmethod
-    def _load_etf_rows() -> dict[str, dict]:
-        """读取 CSV 为 {代码: {列名: 值}} 映射。"""
-        csv_path = SECTORS_DIR / "fund_etf_spot_em.csv"
+    def _load_etf_rows(trade_date: str | None = None) -> dict[str, dict]:
+        """
+        读取 ETF 数据为 {代码: {列名: 值}} 映射。
+
+        Args:
+            trade_date: 指定交易日(YYYY-MM-DD)，从 etf/YYYY-MM/YYYY-MM-DD.csv 读取；
+                        None 时读取最新 spot 快照 fund_etf_spot_em.csv。
+        """
+        if trade_date:
+            csv_path = _archive_etf_path(trade_date)
+        else:
+            csv_path = SECTORS_DIR / "fund_etf_spot_em.csv"
+
         df = pd.read_csv(csv_path, dtype={"代码": str})
         df["代码"] = df["代码"].astype(str).str.strip()
         rows: dict[str, dict] = {}
@@ -163,6 +179,12 @@ class SectorRepository:
             if code:
                 rows[code] = record
         return rows
+
+
+def _archive_etf_path(trade_date: str) -> Path:
+    """返回指定交易日(YYYY-MM-DD)的 ETF 归档路径 etf/YYYY-MM/YYYY-MM-DD.csv。"""
+    yyyymm = trade_date[:7]
+    return SECTORS_DIR / "etf" / yyyymm / f"{trade_date}.csv"
 
 
 def _mean(values: list[float]) -> float | None:

@@ -13,8 +13,7 @@ FundHistoryRepository / HoldingsRepository)对外提供 REST 接口，
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import date, datetime
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +32,7 @@ from src.funds.fund_history import FundHistoryRepository
 from src.funds.fund_info import FundInfoRepository
 from src.portfolio.holdings import HoldingsRepository
 from src.ranking.fund_rank import FundRankingRepository
-from src.sectors.sector_api import create_sector_router
+from src.web.sector_api import create_sector_router
 from src.sectors.sector_data import SectorRepository
 from src.web.ranking_api import create_ranking_router
 
